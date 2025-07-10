@@ -1,10 +1,6 @@
 from scapy.all import sniff, IP, TCP, UDP, Raw, ICMP
 from collections import defaultdict
 from datetime import datetime
-import csv
-import subprocess
-import os
-import pandas as pd
 import time
 import mysql.connector
 
