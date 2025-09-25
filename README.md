@@ -76,6 +76,6 @@ Execute:
 
 ```bash
 
-streamlit run Interface/Index.py
+streamlit run InterFace/Index.py
 
 ```
