@@ -5,7 +5,7 @@ import time
 import mysql.connector
 
 class DatabaseManager:
-    def __init__(self, host='localhost', user='admin', password='admin', database='idsstarlyDB'):
+    def __init__(self, host='localhost', user='admin', password='admin', database='idsstarlyDB2'):
         try:
             self.conn = mysql.connector.connect(
                 host=host,
@@ -40,7 +40,7 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS blacklist (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 timestamp DATETIME,
-                ip VARCHAR(50) UNIQUE,
+                ip VARCHAR(50),
                 descricao TEXT
             )
         ''')
@@ -60,7 +60,7 @@ class DatabaseManager:
     def salvar_na_blacklist(self, ip, descricao):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         query = '''
-            INSERT IGNORE INTO blacklist (timestamp, ip, descricao)
+            INSERT INTO blacklist (timestamp, ip, descricao)
             VALUES (%s, %s, %s)
         '''
         self.cursor.execute(query, (timestamp, ip, descricao))
@@ -105,7 +105,7 @@ class IntrusionDetectionSystem:
         self.__contagem_pacotes_dst = defaultdict(int)
         self.__portScan_contagem = defaultdict(list)
         # Limites
-        self.__limite_icmp = 10
+        self.__limite_icmp = 100
         self.__limite_syn = 10
         self.__limite_udp = 100
 
@@ -130,22 +130,21 @@ class IntrusionDetectionSystem:
         self.__limite_syn = valor
 
     
-    #def get_limite_udp(self):
-    #    return self.__limite_udp
+    def get_limite_udp(self):
+        return self.__limite_udp
 
     
-    #def set_limite_udp(self, valor: int):
-    #    self.__limite_udp = valor
+    def set_limite_udp(self, valor: int):
+        self.__limite_udp = valor
 
     # ===========================
     # Firewall e Blacklist
     # ===========================
 
     def bloquear_ip(self, ip, descricao):
-        if ip not in self.__ips_bloqueados:
-        
-            self.__ips_bloqueados.add(ip)
-            self.db.salvar_na_blacklist(ip, descricao)
+       #if ip not in self.__ips_bloqueados:
+        #self.__ips_bloqueados.add(ip)
+        self.db.salvar_na_blacklist(ip, descricao)
                                          
     # ===========================
     # Análise
@@ -163,37 +162,45 @@ class IntrusionDetectionSystem:
         return None
 
     def detectar_ataques(self, src_ip, tempo_atual, packet, dst_port, dst_ip):
+        
         if packet.haslayer(TCP):
             flags = packet[TCP].flags
             if flags == "S":
+
                 self.__tcp_syn_contagem[src_ip].append(tempo_atual)
                 self.__tcp_syn_contagem[src_ip] = [
                     t for t in self.__tcp_syn_contagem[src_ip] if tempo_atual - t < 10
                 ]
+                
                 if len(self.__tcp_syn_contagem[src_ip]) > self.__limite_syn:
                     return "SYN_FLOOD"
 
         if packet.haslayer(TCP):
-            self.__portScan_contagem[src_ip].append((dst_port, tempo_atual))
-            
-            
-            self.__portScan_contagem[src_ip] = [
-                (porta, t) for (porta, t) in self.__portScan_contagem[src_ip] if tempo_atual - t < 10
-            ]
-            
-            portas_unicas = set([porta for porta, _ in self.__portScan_contagem[src_ip]])
-            
-            if len(portas_unicas) > 20:
-                return "PORT_SCAN"
 
-        if packet.haslayer(ICMP):  # Corrigir para ICMP se necessário
-            self.__icmp_contagem[src_ip].append(tempo_atual)
-            self.__icmp_contagem[src_ip] = [
-                t for t in self.__icmp_contagem[src_ip] if tempo_atual - t < 1
-            ]
-            if len(self.__icmp_contagem[src_ip]) > self.__limite_icmp:
-                return "ICMP_FLOOD"
-        # Existing DOS Slow and Low detection
+            if packet[TCP].flags == "S":
+                self.__portScan_contagem[src_ip].append((dst_port, tempo_atual))
+                
+                
+                self.__portScan_contagem[src_ip] = [
+                    (porta, t) for (porta, t) in self.__portScan_contagem[src_ip] if tempo_atual - t < 60
+                ]
+                
+                portas_unicas = set([porta for porta, _ in self.__portScan_contagem[src_ip]])
+                if len(portas_unicas) > 20:
+                    return "PORT_SCAN"
+
+        if packet.haslayer(ICMP): 
+            if packet[ICMP].type == 8:
+                self.__icmp_contagem[src_ip].append(tempo_atual)
+                self.__icmp_contagem[src_ip] = [
+                    t for t in self.__icmp_contagem[src_ip] if tempo_atual - t < 60
+                ]
+                taxa_pacotes = len(self.__icmp_contagem[src_ip]) / 2
+                
+                if taxa_pacotes > (self.__limite_icmp / 10):
+                    return "ICMP_FLOOD"
+                    
+        # verifica ddos slow and low
         if packet.haslayer(Raw):
             payload = packet[Raw].load
             if payload.startswith(b'GET') or payload.startswith(b'POST'):
@@ -201,7 +208,7 @@ class IntrusionDetectionSystem:
                     print("[ALERTA] Cabeçalho HTTP incompleto detectado!")
                     return "DOS_SLOW_AND_LOW"
                 
-        # Existing HTTPS connection without payload detection
+        # verifica pacote http sem payload
         if packet.haslayer(TCP) and packet.haslayer(IP):
             flags = packet[TCP].flags
             if dst_port == 443:

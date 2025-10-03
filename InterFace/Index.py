@@ -21,32 +21,15 @@ st.title("Análise de Logs da IdsStarly em Tempo Real")
 
 # ===== Sidebar =====
 st.sidebar.title("Configurações")
-tempo_atualizacao = st.sidebar.slider('Atualizar a cada (Minutos):', 1, 60, 5)
-tempo_atualizacao = tempo_atualizacao * 60
+if st.button("Atualizar agora"):
+    st.cache_data.clear()
+    st.rerun()
 icmp_limite = ids.set_limite_icmp(st.sidebar.slider('Limite ICMP:', 10, 1000, ids.get_limite_icmp()))
 syn_limite = ids.set_limite_syn(st.sidebar.slider("Limite de pacotes SYN:", 10, 1000, ids.get_limite_syn()))
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚠️ Gerenciar Banco de Dados")
-
-if st.sidebar.button("🗑️ Limpar Dados do Banco"):
-    try:
-        db.cursor.execute("DELETE FROM logs")
-        db.cursor.execute("ALTER TABLE logs AUTO_INCREMENT = 1")
-
-        db.cursor.execute("DELETE FROM blacklist")
-        db.cursor.execute("ALTER TABLE blacklist AUTO_INCREMENT = 1")
-
-        db.conn.commit()
-
-        st.sidebar.success("✅ Dados apagados com sucesso!")
-    except Exception as e:
-        st.sidebar.error(f"❌ Erro: {e}")
-# ===== AutoRefresh =====
-st_autorefresh(interval=tempo_atualizacao * 1000, key="autorefresh")
 
 # ===== Funções =====
-@st.cache_data(ttl=tempo_atualizacao)
+
 def carregar_dados_agrupados():
     db.cursor.execute("SELECT label, COUNT(*) FROM logs GROUP BY label")
     dados = db.cursor.fetchall()
@@ -54,20 +37,44 @@ def carregar_dados_agrupados():
     return df
 
 
-@st.cache_data(ttl=tempo_atualizacao)
+
 def carregar_logs_completos():
-    query = "SELECT timestamp, src_ip, src_port, dst_ip, dst_port, label, descricao FROM logs ORDER BY id DESC"
+    query = "SELECT timestamp, src_ip, src_port, dst_ip, dst_port, label, descricao FROM logs ORDER BY id desc"
     db.cursor.execute(query)
     dados = db.cursor.fetchall()
     df = pd.DataFrame(dados, columns=[
         'Timestamp', 'Src IP', 'Src Port', 'Dst IP', 'Dst Port', 'Label', 'Descrição'
     ])
     return df
+    
+def timeline_alertas(intervalo="minute"):
+    if intervalo == "second":
+        query = '''
+            SELECT DATE_FORMAT(timestamp, "%Y-%m-%d %H:%i:%s") as tempo, COUNT(*)
+            FROM logs
+            GROUP BY tempo
+            ORDER BY tempo DESC
+            LIMIT 100
+        '''
+    else: 
+        query = '''
+            SELECT DATE_FORMAT(timestamp, "%Y-%m-%d %H:%i") as tempo, COUNT(*)
+            FROM logs
+            GROUP BY tempo
+            ORDER BY tempo DESC
+            LIMIT 100
+        '''
+    db.cursor.execute(query)
+    dados = db.cursor.fetchall()
+    df = pd.DataFrame(dados, columns=['Tempo', 'Quantidade'])
+    df['Tempo'] = pd.to_datetime(df['Tempo'])
+    df = df.sort_values("Tempo") 
+    return df
 
 
-@st.cache_data(ttl=tempo_atualizacao)
+
 def carregar_blacklist():
-    query = "SELECT * FROM blacklist"
+    query = "SELECT id, timestamp, ip, descricao FROM blacklist order by timestamp desc"
     db.cursor.execute(query)
     dados = db.cursor.fetchall()
     df = pd.DataFrame(dados, columns=[
@@ -75,7 +82,7 @@ def carregar_blacklist():
     ])
     return df
 
-@st.cache_data(ttl=tempo_atualizacao)
+
 def top_ips_origem():
     query = '''
         SELECT src_ip, COUNT(*) 
@@ -89,21 +96,10 @@ def top_ips_origem():
     df = pd.DataFrame(dados, columns=['IP', 'Quantidade'])
     return df
 
-
-@st.cache_data(ttl=tempo_atualizacao)
-def heatmap_comunicacao():
-    query = '''
-        SELECT src_ip, dst_ip, COUNT(*) 
-        FROM logs 
-        GROUP BY src_ip, dst_ip
-    '''
-    db.cursor.execute(query)
-    dados = db.cursor.fetchall()
-    df = pd.DataFrame(dados, columns=['Src IP', 'Dst IP', 'Quantidade'])
-    return df
+    
 
 
-@st.cache_data(ttl=tempo_atualizacao)
+
 def distribuicao_portas():
     query = '''
         SELECT dst_port, COUNT(*) 
@@ -120,7 +116,7 @@ def distribuicao_portas():
 
 
 # ===== Abas =====
-aba_grafico, aba_logs, aba_blacklist = st.tabs(["📊 Gráfico de Tráfego", "📄 Logs Completos", "🚫 BlackList"])
+aba_grafico, aba_logs, aba_blacklist = st.tabs(["📊 Gráfico de Tráfego", "📄 Logs Completos", "🚫 Incidentes"])
 
 # ===== Aba Gráfico =====
 with aba_grafico:
@@ -163,22 +159,20 @@ with aba_grafico:
 
     st.bar_chart(df_ip.set_index('IP'))
 
-    st.info(f"Atualiza a cada {tempo_atualizacao} segundos automaticamente.")
-    
-    
-    st.subheader("Heatmap de Comunicação IP → IP")
+    st.subheader("Timeline de Alertas")
 
-    df_heat = heatmap_comunicacao()
+    intervalo = st.radio("Intervalo de agregação:", ["minutos", "segundos"], horizontal=True)
 
-    if not df_heat.empty:
-        pivot = df_heat.pivot(index="Src IP", columns="Dst IP", values="Quantidade").fillna(0)
+    df_timeline = timeline_alertas(intervalo)
 
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(pivot, cmap="Reds", ax=ax)
-        plt.title("Volume de Comunicação entre IPs")
-        st.pyplot(fig)
-    else:
-        st.warning("Sem dados suficientes para gerar o heatmap.")
+    fig, ax = plt.subplots(figsize=(10, 4))
+    sns.lineplot(data=df_timeline, x="Tempo", y="Quantidade", marker="o", ax=ax)
+    ax.set_ylabel("Número de Alertas")
+    ax.set_xlabel("Tempo")
+    plt.xticks(rotation=45, ha="right")
+
+    st.pyplot(fig)
+
     
     
     st.subheader("Distribuição de Portas de Destino")
@@ -202,7 +196,7 @@ with aba_logs:
         step=10
     )
 
-    st.dataframe(logs_df.head(num_linhas), use_container_width=True)
+    st.dataframe(logs_df.head(num_linhas), width="stretch")
 
     st.info(f"Mostrando as {num_linhas} linhas mais recentes dos logs.")
 
@@ -222,7 +216,7 @@ with aba_blacklist:
             step=10
         )
 
-        st.dataframe(blacklist_df.head(num_linhas), use_container_width=True)
+        st.dataframe(blacklist_df.head(num_linhas), width="stretch")
 
         st.info(f"Mostrando as {num_linhas} linhas da blacklist.")
     else:
