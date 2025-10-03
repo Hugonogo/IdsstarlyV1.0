@@ -19,9 +19,7 @@ Os eventos detectados são armazenados em um **banco de dados MySQL** e podem se
 - **Blacklist automática** de IPs suspeitos.
 - Dashboard interativo para monitoramento:
   - Gráficos de tráfego
-  - Heatmap de comunicação IP → IP
   - Distribuição de portas
-  - Lista de IPs bloqueados
 
 ---
 
