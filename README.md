@@ -11,15 +11,14 @@ Os eventos detectados são armazenados em um **banco de dados MySQL** e podem se
   - **SYN Flood**
   - **ICMP Flood**
   - **Port Scan**
-  - **Fragmentation Attack**
   - **Slowloris / Slow HTTP**
   - **NMAP Scan**
 - Identificação de **assinaturas maliciosas** no tráfego.
 - Armazenamento dos logs em banco MySQL.
-- **Blacklist automática** de IPs suspeitos.
+- **Incidentes** de IPs suspeitos.
 - Dashboard interativo para monitoramento:
   - Gráficos de tráfego
-  - Distribuição de portas
+  - Logs
 
 ---
 
